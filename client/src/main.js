@@ -8,6 +8,11 @@ if (!SERVER_URL && window.location.protocol.startsWith('http')) {
    console.error("CRITICAL: VITE_SERVER_URL is not defined in this production build. Pointing to null/localhost will fail.");
 }
 
+// Global Connection Pulse
+if (SERVER_URL) {
+  initSocketConnection();
+}
+
 let socket = null;
 let currentUsername = localStorage.getItem('nexus-username') || "";
 let currentNetworkCode = localStorage.getItem('nexus-network') || "";
@@ -246,29 +251,21 @@ function selectPeer(socketId, username) {
 function initSocketConnection() {
   socket = io(SERVER_URL);
 
-  socket.on('connect', () => {
-    console.log(`[+] WebSockets connected to inter-device TCP relay.`);
-    if (connStatus) {
-       connStatus.style.background = "#22c55e"; // Green
-       connStatus.style.boxShadow = "0 0 8px #22c55e";
-       connStatus.title = "Connected to Secure Relay";
-    }
-  });
-
-  socket.on('disconnect', () => {
-    if (connStatus) {
-       connStatus.style.background = "#ef4444"; // Red
-       connStatus.style.boxShadow = "0 0 8px #ef4444";
-       connStatus.title = "Offline: Secure Relay Unreachable";
-    }
-  });
-
   socket.on('connect_error', (err) => {
     console.error("Connection Error:", err);
     if (connStatus) {
        connStatus.style.background = "#ef4444";
-       connStatus.style.boxShadow = "0 0 8px #ef4444";
-       connStatus.title = `Connection Failed: ${err.message}`;
+       connStatus.style.boxShadow = "0 0 12px #ef4444";
+       connStatus.title = `Access Denied: ${err.message}`;
+    }
+  });
+
+  socket.on('connect', () => {
+    console.log(`[+] WebSockets connected to inter-device TCP relay.`);
+    if (connStatus) {
+       connStatus.style.background = "#22c55e"; // Green
+       connStatus.style.boxShadow = "0 0 12px #22c55e";
+       connStatus.title = "Secure Link Active";
     }
   });
   

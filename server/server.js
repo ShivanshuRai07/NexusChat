@@ -15,7 +15,7 @@ app.get('/', (req, res) => res.send('NexusChat API is Online and Active.'));
 // Limit buffers to 5MB to handle robust imaging data payloads internally over sockets
 const io = new Server(server, {
   cors: {
-    origin: ["https://nexuschat-sigma.vercel.app", "http://localhost:5173", "http://localhost:3000"],
+    origin: ["https://nexushat.vercel.app", "https://nexuschat-sigma.vercel.app", "http://localhost:5173", "http://localhost:3000"],
     methods: ["GET", "POST"]
   },
   maxHttpBufferSize: 50e6
