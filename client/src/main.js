@@ -1,7 +1,12 @@
 import './style.css';
 import { io } from 'socket.io-client';
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || `http://${window.location.hostname}:3000`;
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? `http://${window.location.hostname}:3000` : "");
+const connStatus = document.getElementById('conn-status');
+
+if (!SERVER_URL && window.location.protocol.startsWith('http')) {
+   console.error("CRITICAL: VITE_SERVER_URL is not defined in this production build. Pointing to null/localhost will fail.");
+}
 
 let socket = null;
 let currentUsername = localStorage.getItem('nexus-username') || "";
@@ -243,6 +248,28 @@ function initSocketConnection() {
 
   socket.on('connect', () => {
     console.log(`[+] WebSockets connected to inter-device TCP relay.`);
+    if (connStatus) {
+       connStatus.style.background = "#22c55e"; // Green
+       connStatus.style.boxShadow = "0 0 8px #22c55e";
+       connStatus.title = "Connected to Secure Relay";
+    }
+  });
+
+  socket.on('disconnect', () => {
+    if (connStatus) {
+       connStatus.style.background = "#ef4444"; // Red
+       connStatus.style.boxShadow = "0 0 8px #ef4444";
+       connStatus.title = "Offline: Secure Relay Unreachable";
+    }
+  });
+
+  socket.on('connect_error', (err) => {
+    console.error("Connection Error:", err);
+    if (connStatus) {
+       connStatus.style.background = "#ef4444";
+       connStatus.style.boxShadow = "0 0 8px #ef4444";
+       connStatus.title = `Connection Failed: ${err.message}`;
+    }
   });
   
   socket.on('network:success', (data) => {
