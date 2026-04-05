@@ -62,17 +62,110 @@ const sendBtn = document.getElementById('send-btn');
 const attachmentTriggerBtn = document.getElementById('attachment-trigger-btn');
 const mediaInput = document.getElementById('media-input');
 const attachmentPreview = document.getElementById('attachment-preview');
+const forceClearBtn = document.getElementById('force-clear-btn');
 
 let typingTimeout = null;
 let pendingAttachments = [];
 
-// --- INITIALIZATION ---
-if (autoJoinNetCode) {
-   networkCodeInput.value = autoJoinNetCode.toUpperCase();
-}
-if (currentUsername) usernameInput.value = currentUsername;
+// --- DATABASE & MEMORY LAYER (IndexedDB) ---
+let db = null;
+const DB_NAME = 'NexusChatDB';
+const STORE_NAME = 'history';
 
-loadMemory();
+async function initDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    };
+    request.onsuccess = (e) => {
+      db = e.target.result;
+      resolve(db);
+    };
+    request.onerror = (e) => reject(e.target.error);
+  });
+}
+
+async function loadMemory() {
+  if (!db) await initDB();
+  
+  // 1. Check for legacy localStorage data to migrate
+  const legacyData = localStorage.getItem('nexus-subnet-memory');
+  if (legacyData) {
+    try {
+      const parsed = JSON.parse(legacyData);
+      conversationMemory = new Map(parsed);
+      await saveMemory(); // Migrate to IndexedDB
+      localStorage.removeItem('nexus-subnet-memory');
+      console.log("Migration from localStorage to IndexedDB successful.");
+    } catch(e) { console.error("Migration failed:", e); }
+    return;
+  }
+
+  // 2. Load from IndexedDB
+  return new Promise((resolve) => {
+    const transaction = db.transaction(STORE_NAME, 'readonly');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.get('all_conversations');
+    request.onsuccess = () => {
+      if (request.result) {
+        conversationMemory = new Map(request.result);
+      }
+      resolve();
+    };
+    request.onerror = () => resolve();
+  });
+}
+
+async function saveMemory() {
+  if (!db) await initDB();
+  const dataToSave = Array.from(conversationMemory.entries()).map(([key, data]) => {
+     return [key, {
+        unread: data.unread,
+        history: data.history.map(msg => ({
+           isSelf: msg.isSelf,
+           text: msg.text,
+           timestamp: msg.timestamp,
+           senderName: msg.senderName,
+           attachments: msg.attachments || [],
+           mediaBase64: msg.mediaBase64 || null
+        }))
+     }];
+  });
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.put(dataToSave, 'all_conversations');
+    request.onsuccess = () => resolve();
+    request.onerror = (e) => reject(e.target.error);
+  });
+}
+
+// --- INITIALIZATION ---
+(async () => {
+  if (autoJoinNetCode) {
+     networkCodeInput.value = autoJoinNetCode.toUpperCase();
+  }
+  if (currentUsername) usernameInput.value = currentUsername;
+
+  try {
+    await initDB();
+    await loadMemory();
+    
+    // AUTO-LOGIN: If we have both username & network, jump straight in
+    if (currentUsername && currentNetworkCode && !autoJoinNetCode) {
+       console.log("Auto-connecting to previously saved subnet...");
+       if (!socket) initSocketConnection();
+       socket.emit('network:join', { username: currentUsername, networkCode: currentNetworkCode });
+    }
+  } catch (err) {
+    console.error("Storage initialization failed:", err);
+  }
+})();
 
 // --- ENTRY & VPN AUTHENTICATION FLOW ---
 entryForm.addEventListener('submit', (e) => {
@@ -229,7 +322,7 @@ function selectPeer(socketId, username) {
   
   const mem = getOrInitMemory(username);
   mem.unread = 0;
-  saveMemory();
+  saveMemory(); // Async but no await needed here as UI responds immediately
   
   renderSidebar();
 
@@ -499,41 +592,7 @@ function escapeHTML(str) {
 }
 
 // --- LOCAL DEVICE MEMORY ---
-function saveMemory() {
-  const backupData = Array.from(conversationMemory.entries()).map(([key, data]) => {
-     return [key, {
-        unread: data.unread,
-        history: data.history.map(msg => ({
-           isSelf: msg.isSelf,
-           text: msg.text,
-           timestamp: msg.timestamp,
-           senderName: msg.senderName,
-           attachments: msg.attachments || [],
-           mediaBase64: msg.mediaBase64 || null
-        }))
-     }];
-  });
-  
-  try {
-     localStorage.setItem('nexus-subnet-memory', JSON.stringify(backupData));
-  } catch (err) {
-     if (err.name === 'QuotaExceededError') {
-         showAlert("Storage Limit Reached", "Your browser's memory capacity (5MB) is full. Older media may need to be deleted to save new data, or clearing cache is required.");
-     } else {
-         console.error("Memory saving error:", err);
-     }
-  }
-}
-
-function loadMemory() {
-  const dataString = localStorage.getItem('nexus-subnet-memory');
-  if (dataString) {
-    try {
-      const parsed = JSON.parse(dataString);
-      conversationMemory = new Map(parsed);
-    } catch(e) {}
-  }
-}
+// Functions loadMemory and saveMemory moved to top for organization
 
 // --- LIGHTBOX & DOWNLOADING ---
 const lightbox = document.getElementById('image-lightbox');
@@ -570,6 +629,20 @@ if (logoutBtn) {
   logoutBtn.addEventListener('click', () => {
      localStorage.removeItem('nexus-username');
      window.location.reload();
+  });
+}
+
+if (forceClearBtn) {
+  forceClearBtn.addEventListener('click', () => {
+    if (confirm("DANGER: This will permanently delete all your local chat history and networks to fix storage issues. Proceed?")) {
+       localStorage.clear();
+       const req = indexedDB.deleteDatabase(DB_NAME);
+       req.onsuccess = () => {
+          alert("All local data cleared. Refreshing...");
+          window.location.reload();
+       };
+       req.onerror = () => window.location.reload();
+    }
   });
 }
 
