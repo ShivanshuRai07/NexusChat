@@ -9,6 +9,9 @@ const server = createServer(app);
 
 app.use(cors());
 
+// Basic health check for Render cold-start wakeups
+app.get('/', (req, res) => res.send('NexusChat API is Online and Active.'));
+
 // Limit buffers to 5MB to handle robust imaging data payloads internally over sockets
 const io = new Server(server, {
   cors: {
